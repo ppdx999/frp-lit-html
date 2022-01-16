@@ -1,38 +1,72 @@
 import { html, render } from "lit-html";
+import { styleMap } from "lit-html/directives/style-map.js";
 import { IO, next } from "./lib/ReactiveMonad";
 import { allNoResetIO } from "./lib/AllNoResetIO";
 
-const countIO = IO(0);
-const decrement = () => countIO[">"](next(countIO.lastVal - 1));
-const increment = () => countIO[">"](next(countIO.lastVal + 1));
+const count = IO(0);
+const uid = () => count[">"](next(count.lastVal + 1)).lastVal;
 
-const Counter = () => html`
-  <div>
-    <h2>
-      You clicked ${countIO.lastVal} ${console.log("Counter is rendered")}
-      times!
-    </h2>
-    <button @click="${decrement}">Decrement</button>
-    <button @click="${increment}">Increment</button>
-  </div>
-`;
+type Task = {
+  id: number;
+  title: string;
+  done: boolean;
+};
 
-const start = Date.now();
-const getSecond = () => Math.floor((Date.now() - start) / 1000);
-const timerIO = IO(0);
-const f = () => timerIO[">"](next(getSecond()));
-setInterval(f, 1000);
-
-const Timer = () =>
-  html`<h2>${timerIO.lastVal} ${console.log("Timer is rendered")}</h2>`;
+const taskIO = IO<Task[]>([]);
+const addTaskIO = (task: Task) => taskIO[">"](next([...taskIO.lastVal, task]));
+const done = (id: number, done: boolean) =>
+  taskIO[">"](
+    next(taskIO.lastVal.map((t) => (t.id === id ? { ...t, done } : t)))
+  );
+const rmTaskIO = (id: number) =>
+  taskIO[">"](next(taskIO.lastVal.filter((t) => t.id !== id)));
 
 const App = () => html`
   <div>
-    <h1>Lit-html + FRP</h1>
-    ${Counter()} ${Timer()}
+    <h1>Todo List</h1>
+    ${NewTask()} ${TaskList()}
   </div>
 `;
 
-const allIO = allNoResetIO([countIO, timerIO]);
+const inputTextIO = IO("");
+const updateInputTextIO = (text: string) => inputTextIO[">"](next(text));
 
+const onInput = (e: any) => {
+  updateInputTextIO(e.currentTarget.value);
+};
+const onKeyPress = (e: KeyboardEvent) => {
+  if (e.key == "Enter") {
+    addTaskIO({ id: uid(), title: inputTextIO.lastVal, done: false });
+    updateInputTextIO("");
+  }
+};
+
+const NewTask = () => html`
+  <div>
+    <input
+      type="text"
+      .value=${inputTextIO.lastVal}
+      @input=${onInput}
+      @keypress=${onKeyPress}
+      placeholder="whad to do next?"
+    />
+  </div>
+`;
+
+const TaskItem = (task: Task) => html`
+  <div style=${styleMap({ display: "flex" })}>
+    <input
+      type="checkbox"
+      @change=${(e: any) => done(task.id, e.currentTarget.checked)}
+      .checked=${task.done}
+    />
+    <div class="title">${task.title}</div>
+    <div class="remove" @click=${() => rmTaskIO(task.id)}>×</div>
+  </div>
+`;
+
+const TaskList = () =>
+  html` <div>${taskIO.lastVal.map((task) => TaskItem(task))}</div> `;
+
+const allIO = allNoResetIO([taskIO, inputTextIO]);
 const litIO = allIO[">="](() => render(App(), document.body));
